@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Devlog main for updates every minute
+
+[Timer]
+OnActiveSec=15s
+OnUnitInactiveSec=60s
+AccuracySec=2s
+
+[Install]
+WantedBy=timers.target

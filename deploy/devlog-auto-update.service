@@ -1,0 +1,18 @@
+[Unit]
+Description=Deploy the latest Devlog main commit
+After=network-online.target devlog.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/devlog/auto-update
+StateDirectory=devlog-deploy
+StateDirectoryMode=0700
+LoadCredential=deploy_key:/etc/devlog/deploy_key
+LoadCredential=github_known_hosts:/etc/devlog/github_known_hosts
+TimeoutStartSec=150
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/devlog
