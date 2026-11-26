@@ -1,43 +1,137 @@
-# Devlog pentru Discord
+<div align="center">
 
-Un bot Discord care publică activitatea GitHub într-un canal. Fiecare card are numele repository-ului, un link către GitHub, autorul și ora. Push-urile apar mov, cu link la comparație și la fiecare commit. Un push lung continuă pe mai multe carduri. Joburile și deploy-urile reușite apar în verde, erorile în roșu, iar execuțiile active în galben.
+# 📡 Devlog
 
-Feedul începe din momentul instalării. O singură GitHub App poate acoperi repository-urile publice și private la care a fost instalată, inclusiv cele create ulterior dacă alegi **All repositories**. Instaleaz-o în fiecare cont sau organizație pe care vrei s-o urmărești.
+### A self-hosted GitHub activity feed for Discord
 
-## Configurare
+Follow commits, builds and releases from your public and private repositories
+in one Discord channel.
 
-1. Creează un canal în Discord, de exemplu `#devlog`. Pentru repository-uri private, folosește un canal în care publicul are acces la acea activitate. Creează o aplicație în [Discord Developer Portal](https://discord.com/developers/applications). Din **Bot** obții tokenul. Din **Installation** activezi instalarea pe server cu scope-ul `bot`, apoi instalezi aplicația folosind linkul de instalare. În canal, botul are nevoie de **View Channel**, **Send Messages** și **Embed Links**. Activează **Developer Mode** în Discord, apoi folosește **Copy Channel ID** pe canal.
-2. Alege adresa HTTPS publică a serviciului, de exemplu `https://devlog.exemplu.ro`. Pune un reverse proxy HTTPS în fața procesului Node sau folosește adresa HTTPS a platformei de hosting. Configurează proxy-ul pentru cereri de până la 25 MiB. Pe un host care rutează către container, setează și `HOST=0.0.0.0`.
-3. Creează o [GitHub App](https://github.com/settings/apps/new) cu **Webhook** activ, URL `https://devlog.exemplu.ro/webhooks/github` și un secret generat local, de exemplu cu `openssl rand -hex 32`. Configurează permisiunile de repository de mai jos și selectează evenimentele aferente în **Subscribe to events**. Notează **App ID**, apoi generează o cheie privată în setările aplicației, pentru push-urile care depășesc limita payloadului.
-4. Copiază `.env.example` în `.env`. Completează `GITHUB_WEBHOOK_SECRET`, `DISCORD_BOT_TOKEN`, `DISCORD_CHANNEL_ID`, `GITHUB_APP_ID` și calea către fișierul cheii în `GITHUB_APP_PRIVATE_KEY_FILE`. Păstrează fișierul cheii și `.env` în afara versionării. Poți seta `GITHUB_LOGIN` ca să vezi numai evenimentele asociate utilizatorului tău. Dacă îl lași gol, vezi și activitatea colegilor și a roboților. Filtrul folosește identitățile din payload, inclusiv autorul unui commit atunci când GitHub furnizează username-ul.
-5. Pornește botul cu Node.js 22.13 sau mai nou și `npm start`. Rulează o singură instanță pe un server permanent și păstrează `data/` pe un volum persistent. Verifică `GET /healthz`, apoi instalează GitHub App prin **Install App → All repositories** în conturile dorite. Pentru o organizație, instalarea poate necesita aprobarea administratorului. Pentru instalare și în alte conturi decât cel proprietar, GitHub App trebuie configurată să permită instalări în alte conturi.
-6. Verifică **Advanced → Recent Deliveries** în GitHub App, apoi fă un push de test. GitHub ar trebui să primească HTTP 202, iar cardul să apară în canal. Poți rula `npm run preview` pentru trei exemple de mesaje Discord în JSON, cu date fictive.
+[Feed preview](#-feed-preview) ·
+[Quick start](#-quick-start) ·
+[GitHub events](#-github-events) ·
+[Oracle VM deployment](#-oracle-vm-deployment)
 
-| Permisiune GitHub App, doar citire | Evenimente |
+[![Node.js 22.13+](https://img.shields.io/badge/Node.js-22.13%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![GitHub App](https://img.shields.io/badge/GitHub-App-181717?logo=github&logoColor=white)](https://docs.github.com/en/apps)
+[![Discord embeds](https://img.shields.io/badge/Discord-Embeds-5865F2?logo=discord&logoColor=white)](https://discord.com/developers/docs/resources/message#embed-object)
+[![SQLite persistence](https://img.shields.io/badge/SQLite-Persistence-003B57?logo=sqlite&logoColor=white)](https://sqlite.org/)
+
+</div>
+
+---
+
+## ✨ What Devlog shows
+
+- **🟣 Pushes and commits.** The branch, author, time, comparison link and a clickable title for each commit. Long pushes continue across several cards.
+- **🟢 Builds and deployments.** Job and workflow cards link back to GitHub, with green success, red failure and yellow progress states.
+- **🔔 Repository activity.** Follow selected releases, pull requests, reviews, issues, discussions and checks.
+- **🔒 Private repositories.** Install one GitHub App per account or organization. Choose **All repositories** to include private repositories and repositories created later.
+
+## 🎨 Feed preview
+
+<table>
+<tr>
+<th align="left">🟣 Push</th>
+<th align="left">🟢 Build</th>
+</tr>
+<tr>
+<td valign="top">
+<strong>Atlas</strong><br />
+<strong>2 commits on main</strong><br />
+• Validate settings on startup<br />
+• Refresh the activity dashboard<br /><br />
+<sub>by octocat · Today at 2:31 PM</sub>
+</td>
+<td valign="top">
+<strong>Atlas</strong><br />
+<strong>✅ Build and deploy</strong><br />
+Finished successfully on <strong>main</strong> · Deploy UI<br /><br />
+<sub>by octocat · Today at 2:33 PM</sub>
+</td>
+</tr>
+</table>
+
+Run `npm run preview` to generate example push, success and failure payloads with sample data.
+
+## 🚀 Quick start
+
+Requires **Node.js 22.13+**. The bot uses Node's built-in modules and SQLite.
+
+```bash
+git clone https://github.com/VIK-DD/devlog.git
+cd devlog
+cp .env.example .env
+```
+
+1. Create an application in the [Discord Developer Portal](https://discord.com/developers/applications) and install it on your server with the `bot` scope. Grant **View Channel**, **Send Messages** and **Embed Links** in your destination channel. Enable **Developer Mode** to copy the channel ID.
+2. Create a [GitHub App](https://github.com/settings/apps/new). Enable its webhook and set the URL to `https://YOUR-HOST/webhooks/github`. Generate a secret with `openssl rand -hex 32`, configure the repository permissions below and subscribe to the events you want.
+3. Generate a private key for the GitHub App. Set the following values in `.env`.
+
+   | Variable | Purpose |
+   | --- | --- |
+   | `GITHUB_WEBHOOK_SECRET` | The secret shared with the GitHub App webhook |
+   | `GITHUB_APP_ID` | The numeric GitHub App ID |
+   | `GITHUB_APP_PRIVATE_KEY_FILE` | PEM file used to fetch commits omitted from large pushes |
+   | `DISCORD_BOT_TOKEN` | The token from the Discord application's **Bot** page |
+   | `DISCORD_CHANNEL_ID` | The destination channel ID |
+   | `GITHUB_LOGIN` | Optional login filter. Leave blank for activity from all actors. |
+
+4. Start the bot with `npm start`. Put an HTTPS reverse proxy or tunnel in front of the listener and allow request bodies up to 25 MiB. Check `GET /healthz`.
+5. Install the GitHub App under **Install App → All repositories**, then push to a repository. GitHub's **Advanced → Recent deliveries** should show HTTP 202 for the push.
+
+By default, the service listens on `127.0.0.1:3000` and stores its queue at
+`data/devlog.sqlite`. Set `HOST=0.0.0.0` when your container platform routes
+traffic to the process. Use one instance and a persistent volume for SQLite.
+
+## 🔔 GitHub events
+
+| Repository permission · read-only | Events |
 | --- | --- |
 | Contents | Push, Release, Create, Delete, Workflow dispatch, Commit comment |
 | Actions | Workflow job, Workflow run |
-| Pull requests | Pull request, Pull request review, Pull request review comment, Pull request review thread |
+| Pull requests | Pull request, Pull request review, Review comment, Review thread |
 | Issues | Issues |
-| Issues sau Pull requests | Issue comment |
+| Issues or Pull requests | Issue comment |
 | Deployments | Deployment, Deployment status |
 | Discussions | Discussion, Discussion comment |
 | Metadata | Repository, Fork, Star, Watch |
-| Checks / Commit statuses | Check run, Check suite / Status |
+| Checks | Check run, Check suite |
+| Commit statuses | Status |
 
-**Workflow job** arată fiecare job, iar **Workflow run** actualizarea workflow-ului complet. Dacă le activezi pe ambele, canalul afișează ambele niveluri. **Create** și **Delete** pot apărea și într-un **Push** pentru același branch sau tag. Poți activa și alte evenimente disponibile pentru GitHub App. Pentru un eveniment cu repository și fără format dedicat, botul afișează evenimentul, acțiunea și linkul spre repository. [Referința evenimentelor și permisiunilor GitHub](https://docs.github.com/en/webhooks/webhook-events-and-payloads)
+Enable **Workflow job** for each job card and **Workflow run** for the overall
+workflow card. **Create** and **Delete** may also surface through **Push** when
+the same branch or tag changes. Other subscribed repository events use a basic
+card with the event name and a GitHub link. [GitHub webhook event reference](https://docs.github.com/en/webhooks/webhook-events-and-payloads)
 
-## Livrare și limite
+## ☁️ Oracle VM deployment
 
-- Botul verifică semnătura GitHub și scrie evenimentul în SQLite înainte să confirme primirea. Retrimite automat mesajele acceptate local când Discord e indisponibil și păstrează progresul fiecărui push împărțit în mai multe mesaje. Identificatorii livrărilor finalizate se păstrează șapte zile pentru deduplicare.
-- Pentru un push foarte mare, botul încearcă să completeze lista prin API-ul GitHub. Când comparația nu este disponibilă, cardul include commit-urile primite, marchează lista ca parțială și oferă link la GitHub. GitHub poate omite complet un webhook, de exemplu pentru un push care actualizează peste 5.000 de branch-uri sau peste trei tag-uri simultan. [Limitele webhookurilor GitHub](https://docs.github.com/en/webhooks/webhook-events-and-payloads#push)
-- Dacă serverul e oprit înainte să accepte un webhook, folosește **Redeliver** din **Recent Deliveries**. GitHub păstrează acolo livrările din ultimele trei zile. [Retrimiterea unui webhook](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks)
+| Component | Location |
+| --- | --- |
+| Bot | `devlog.service` on `127.0.0.1:8310` |
+| HTTPS webhook | `https://devlog.novaguard.fun/webhooks/github` |
+| Production configuration | `/etc/devlog` |
+| Persistent queue | `/var/lib/devlog/devlog.sqlite` |
+| Active release | `/opt/devlog/current` |
 
-## Instalarea de pe Oracle VM
+The VM checks `VIK-DD/devlog` on `main` about once a minute. A new commit is
+fetched with a read-only deploy key, syntax-checked, then activated through
+systemd. If the new process fails its health check, the updater restores the
+previous release. It tries again when `main` advances to a different commit.
 
-Devlog folosește serviciul `devlog.service`, portul local `8310`, baza de date din `/var/lib/devlog` și un tunel Cloudflare dedicat pentru `https://devlog.novaguard.fun/webhooks/github`. Codul și utilitarul de configurare sunt în `/opt/devlog`.
+```bash
+systemctl status devlog.service devlog-auto-update.timer
+journalctl -u devlog-auto-update.service -n 30 --no-pager
+sudo systemctl start devlog-auto-update.service
+```
 
-1. Pe Mac, copiază secretul webhookului cu `ssh oracle 'sudo -n /opt/devlog/configure secret' | pbcopy`. Lipește-l în câmpul **Secret** din registrarea GitHub App. Salvează aplicația, notează **App ID** și descarcă cheia PEM de la **Private keys → Generate a private key**.
-2. În Discord Developer Portal, creează aplicația, instaleaz-o pe server și acordă botului **View Channel**, **Send Messages** și **Embed Links** în canalul privat. Copiază tokenul din secțiunea **Bot**.
-3. În Terminal, încarcă fișierul cu `ssh oracle 'sudo -n /opt/devlog/configure key' < "/cale/către/cheia-github.pem"`. Rulează apoi `ssh -t oracle 'sudo -n /opt/devlog/configure discord VIK-DD 1520796164658565230'`. Utilitarul cere App ID și tokenul Discord, cu tokenul ascuns la tastare.
-4. Pornește serviciul cu `ssh oracle 'sudo -n systemctl restart devlog.service'`. După ce `https://devlog.novaguard.fun/healthz` răspunde cu `ok`, instalează aplicația GitHub pe cont folosind **All repositories**.
+The updater deploys `src/` and `package.json`. The installed systemd units and
+privileged updater are managed on the VM by the administrator. The repo includes
+their source in [`deploy/`](deploy/), alongside the credential setup helper.
+
+## 🛡️ Delivery and privacy
+
+- Restrict the Discord channel to members who may see private repository names and commit subjects.
+- Devlog validates GitHub signatures and queues accepted deliveries in SQLite before acknowledging them. It retries Discord failures and keeps progress for multi-card pushes.
+- The feed starts after installation. GitHub can omit oversized events, and some large pushes include only part of the commit list. Devlog tries to retrieve the remainder and labels partial lists when it cannot. [GitHub push payload limits](https://docs.github.com/en/webhooks/webhook-events-and-payloads#push)
+- For webhooks GitHub sent while the endpoint was unavailable, use **Redeliver** in **Recent deliveries**. [GitHub webhook redelivery](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks)
