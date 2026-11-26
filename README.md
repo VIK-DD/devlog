@@ -27,6 +27,7 @@ in one Discord channel.
 - **🟢 Builds and deployments.** Job and workflow cards link back to GitHub, with green success, red failure and yellow progress states.
 - **🔔 Repository activity.** Follow selected releases, pull requests, reviews, issues, discussions and checks.
 - **🔒 Private repositories.** Install one GitHub App per account or organization. Choose **All repositories** to include private repositories and repositories created later.
+- **🟢 Discord presence.** Devlog appears online with the activity **Watching GitHub commits**.
 
 ## 🎨 Feed preview
 

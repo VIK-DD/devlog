@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { discordMessage, actorMatches, makeEmbeds } from './embeds.js';
 import { expandPush, makeGitHubClient } from './github.js';
+import { startDiscordPresence } from './presence.js';
 
 const {
   PORT = '3000', HOST = '127.0.0.1', DATABASE_PATH = 'data/devlog.sqlite',
@@ -170,12 +171,17 @@ const server = createServer((req, res) => {
     res.end();
   });
 });
-server.listen(Number(PORT), HOST, () => console.log('Devlog ascultă pe ' + HOST + ':' + server.address().port));
+let stopPresence;
+server.listen(Number(PORT), HOST, () => {
+  console.log('Devlog ascultă pe ' + HOST + ':' + server.address().port);
+  stopPresence = startDiscordPresence(discordToken);
+});
 const worker = setInterval(() => void deliver(), 250);
 const cleanup = setInterval(() => prune.run(Date.now() - 7 * 24 * 60 * 60 * 1000), 60 * 60 * 1000);
 
 function shutdown() {
   stopping = true;
+  stopPresence?.();
   clearInterval(worker);
   clearInterval(cleanup);
   server.close(() => {
