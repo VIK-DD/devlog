@@ -1,4 +1,5 @@
-import { discordMessage, makeEmbeds } from './embeds.js';
+import { discordMessage, makeEmbeds, workflowEmbed } from './embeds.js';
+import { mergeWorkflow, workflowUpdate } from './workflows.js';
 
 const repoUrl = 'https://github.com/acme/atlas';
 const timestamp = new Date().toISOString();
@@ -15,20 +16,41 @@ const push = {
     { id: 'd3e4f5a', message: 'Refresh the activity dashboard', url: repoUrl + '/commit/d3e4f5a' },
   ],
 };
-const workflow = {
+const workflowRun = {
+  ...common,
+  action: 'completed',
+  workflow_run: {
+    id: 123,
+    name: 'Deploy UI',
+    event: 'push',
+    head_branch: 'main',
+    status: 'completed',
+    conclusion: 'success',
+    html_url: repoUrl + '/actions/runs/123',
+  },
+};
+const workflowJob = {
   ...common,
   action: 'completed',
   workflow_job: {
+    id: 456,
+    run_id: 123,
     name: 'Build and deploy',
     workflow_name: 'Deploy UI',
     head_branch: 'main',
+    status: 'completed',
     conclusion: 'success',
     html_url: repoUrl + '/actions/runs/123/job/456',
   },
 };
+const completed = mergeWorkflow(undefined, workflowUpdate('workflow_run', workflowRun), timestamp);
+const withJob = mergeWorkflow(completed, workflowUpdate('workflow_job', workflowJob), timestamp);
+const failed = { ...workflowRun, workflow_run: { ...workflowRun.workflow_run, conclusion: 'failure' } };
+const failedJob = { ...workflowJob, workflow_job: { ...workflowJob.workflow_job, conclusion: 'failure' } };
+const failedState = mergeWorkflow(undefined, workflowUpdate('workflow_run', failed), timestamp);
 const samples = [
   ...makeEmbeds('push', push, timestamp),
-  ...makeEmbeds('workflow_job', workflow, timestamp),
-  ...makeEmbeds('workflow_job', { ...workflow, workflow_job: { ...workflow.workflow_job, conclusion: 'failure' } }, timestamp),
+  workflowEmbed(withJob, 123),
+  workflowEmbed(mergeWorkflow(failedState, workflowUpdate('workflow_job', failedJob), timestamp), 123),
 ];
 console.log(JSON.stringify(samples.map((embed, index) => discordMessage(embed, 'preview-' + index)), null, 2));

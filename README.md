@@ -24,7 +24,7 @@ in one Discord channel.
 ## ✨ What Devlog shows
 
 - **🟣 Pushes and commits.** The branch, author, time, comparison link and a clickable title for each commit. Long pushes continue across several cards.
-- **🟢 Builds and deployments.** Job and workflow cards link back to GitHub, with green success, red failure and yellow progress states.
+- **🟢 Builds and deployments.** Each workflow run gets one Discord card with linked jobs. The card updates as the run progresses, with green success, red failure and yellow progress states.
 - **🔔 Repository activity.** Follow selected releases, pull requests, reviews, issues, discussions and checks.
 - **🔒 Private repositories.** Install one GitHub App per account or organization. Choose **All repositories** to include private repositories and repositories created later.
 - **🟢 Discord presence.** Devlog appears online with the activity **Watching GitHub commits**.
@@ -100,8 +100,10 @@ traffic to the process. Use one instance and a persistent volume for SQLite.
 | Checks | Check run, Check suite |
 | Commit statuses | Status |
 
-Enable **Workflow job** for each job card and **Workflow run** for the overall
-workflow card. **Create** and **Delete** may also surface through **Push** when
+Enable **Workflow run** for the overall result and **Workflow job** for job status
+inside the same card. A rerun updates that card with the new attempt. Manual
+workflow triggers and GitHub Actions check events use the workflow card.
+**Create** and **Delete** may also surface through **Push** when
 the same branch or tag changes. Other subscribed repository events use a basic
 card with the event name and a GitHub link. [GitHub webhook event reference](https://docs.github.com/en/webhooks/webhook-events-and-payloads)
 

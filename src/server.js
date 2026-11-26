@@ -3,9 +3,10 @@ import { mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { discordMessage, actorMatches, makeEmbeds } from './embeds.js';
+import { discordMessage, actorMatches, makeEmbeds, workflowEmbed } from './embeds.js';
 import { expandPush, makeGitHubClient } from './github.js';
 import { startDiscordPresence } from './presence.js';
+import { isActionsMetadata, mergeWorkflow, workflowUpdate } from './workflows.js';
 
 const {
   PORT = '3000', HOST = '127.0.0.1', DATABASE_PATH = 'data/devlog.sqlite',
@@ -36,6 +37,13 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS pending_deliveries
     ON deliveries (due, received) WHERE payload IS NOT NULL OR embeds IS NOT NULL;
+  CREATE TABLE IF NOT EXISTS workflow_messages (
+    id TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    message_id TEXT,
+    embed TEXT,
+    updated INTEGER NOT NULL
+  );
 `);
 
 const enqueue = db.prepare(`
@@ -51,27 +59,40 @@ const advance = db.prepare('UPDATE deliveries SET next_embed = ?, attempts = 0 W
 const finish = db.prepare('UPDATE deliveries SET payload = NULL, embeds = NULL WHERE id = ?');
 const retry = db.prepare('UPDATE deliveries SET attempts = ?, due = ? WHERE id = ?');
 const prune = db.prepare('DELETE FROM deliveries WHERE payload IS NULL AND embeds IS NULL AND received < ?');
+const loadWorkflow = db.prepare('SELECT state, message_id, embed FROM workflow_messages WHERE id = ?');
+const saveWorkflow = db.prepare(`
+  INSERT INTO workflow_messages (id, state, message_id, embed, updated) VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET state = excluded.state, message_id = excluded.message_id,
+    embed = excluded.embed, updated = excluded.updated
+`);
+const pruneWorkflows = db.prepare('DELETE FROM workflow_messages WHERE updated < ?');
 
 const discordEndpoint = 'https://discord.com/api/v10/channels/' + channel + '/messages';
 let discordReady = 0;
 
-async function publish(embed, id, index) {
+async function publish(embed, id, index, messageId) {
   const nonce = createHash('sha256').update(id + ':' + index).digest('base64url').slice(0, 25);
-  const response = await fetch(discordEndpoint, {
-    method: 'POST',
+  const body = messageId ? { embeds: [embed], allowed_mentions: { parse: [] } } : discordMessage(embed, nonce);
+  const response = await fetch(messageId ? discordEndpoint + '/' + messageId : discordEndpoint, {
+    method: messageId ? 'PATCH' : 'POST',
     redirect: 'error',
     signal: AbortSignal.timeout(12_000),
     headers: { authorization: 'Bot ' + discordToken, 'content-type': 'application/json' },
-    body: JSON.stringify(discordMessage(embed, nonce)),
+    body: JSON.stringify(body),
   });
 
   if (response.status === 429) {
     const data = await response.json().catch(() => ({}));
     discordReady = Date.now() + 250 + (Number(data.retry_after || response.headers.get('retry-after')) || 1) * 1000;
-    return false;
+    return undefined;
   }
-  await response.body?.cancel();
   if (!response.ok) {
+    if (messageId && response.status === 404) {
+      const data = await response.json().catch(() => ({}));
+      if (data.code === 10008) return null;
+    } else {
+      await response.body?.cancel();
+    }
     const error = new Error('Discord API HTTP ' + response.status);
     if (response.status < 500) discordReady = Date.now() + 60_000;
     throw error;
@@ -79,7 +100,37 @@ async function publish(embed, id, index) {
   if (response.headers.get('x-ratelimit-remaining') === '0') {
     discordReady = Date.now() + (Number(response.headers.get('x-ratelimit-reset-after')) || 0) * 1000;
   }
-  return true;
+  if (messageId) {
+    await response.body?.cancel();
+    return messageId;
+  }
+  const data = await response.json();
+  if (typeof data.id !== 'string') throw new Error('Discord returned no message ID');
+  return data.id;
+}
+
+async function deliverWorkflow(delivery, payload, update) {
+  const key = channel + ':' + update.key;
+  const saved = loadWorkflow.get(key);
+  const previous = saved ? JSON.parse(saved.state) : undefined;
+  const state = mergeWorkflow(previous, update, new Date(delivery.received).toISOString());
+  let messageId = saved?.message_id ?? null;
+  let rendered = saved?.embed ?? null;
+
+  if (messageId || actorMatches(delivery.event, payload, login)) {
+    const embed = workflowEmbed(state, update.runId);
+    const nextRender = JSON.stringify(embed);
+    if (nextRender !== rendered) {
+      let sent = await publish(embed, key, 0, messageId);
+      if (sent === null) sent = await publish(embed, key + ':' + messageId, 0);
+      if (!sent) return;
+      messageId = sent;
+      rendered = nextRender;
+    }
+  }
+
+  saveWorkflow.run(key, JSON.stringify(state), messageId, rendered, Date.now());
+  finish.run(delivery.id);
 }
 
 let busy = false;
@@ -94,6 +145,15 @@ async function deliver() {
     let embeds = job.embeds ? JSON.parse(job.embeds) : [];
     if (!job.embeds) {
       const payload = JSON.parse(job.payload);
+      const update = workflowUpdate(job.event, payload);
+      if (update) {
+        await deliverWorkflow(job, payload, update);
+        return;
+      }
+      if (isActionsMetadata(job.event, payload)) {
+        finish.run(job.id);
+        return;
+      }
       const incomplete = job.event === 'push' && await expandPush(payload, compare);
       if (actorMatches(job.event, payload, login)) {
         embeds = makeEmbeds(job.event, payload, new Date(job.received).toISOString(), incomplete);
@@ -177,7 +237,11 @@ server.listen(Number(PORT), HOST, () => {
   stopPresence = startDiscordPresence(discordToken);
 });
 const worker = setInterval(() => void deliver(), 250);
-const cleanup = setInterval(() => prune.run(Date.now() - 7 * 24 * 60 * 60 * 1000), 60 * 60 * 1000);
+const day = 24 * 60 * 60 * 1000;
+const cleanup = setInterval(() => {
+  prune.run(Date.now() - 7 * day);
+  pruneWorkflows.run(Date.now() - 30 * day);
+}, 60 * 60 * 1000);
 
 function shutdown() {
   stopping = true;

@@ -23,6 +23,8 @@ const states = {
   pending: ['🕒', 'Pending', colors.pending],
   in_progress: ['🟡', 'In progress', colors.pending],
   completed: ['⚪', 'Completed', colors.neutral],
+  action_required: ['⚠️', 'Action required', colors.failure],
+  stale: ['⚪', 'Stale', colors.neutral],
 };
 
 const eventNames = {
@@ -206,6 +208,30 @@ export function makeEmbeds(event, payload, timestamp, incomplete = false) {
     url: githubUrl(payload.comment?.html_url ?? payload.review?.html_url)
       ?? githubUrl(subject?.html_url) ?? base.author.url,
   }];
+}
+
+export function workflowEmbed(state, runId) {
+  const jobs = Object.values(state.jobs);
+  const repoUrl = githubUrl(state.repo.html_url);
+  const runUrl = githubUrl(state.workflow.html_url) ?? (repoUrl && repoUrl + '/actions/runs/' + runId);
+  const runState = state.run ?? {
+    status: jobs.some((job) => job.status === 'in_progress' || job.conclusion) ? 'in_progress' : 'queued',
+  };
+  const embed = statusEmbed({
+    workflow_run: { ...state.workflow, status: runState.status, conclusion: runState.conclusion, html_url: runUrl },
+  }, baseEmbed({ repository: state.repo, sender: state.actor }, state.timestamp));
+
+  const failureFirst = (job) => Number(states[job.conclusion]?.[2] !== colors.failure);
+  const lines = jobs.sort((a, b) => failureFirst(a) - failureFirst(b)).slice(0, 8).map((job) => {
+    const status = job.conclusion ?? job.status;
+    const [icon] = states[status] ?? ['⚪'];
+    const url = githubUrl(job.html_url);
+    return icon + ' ' + link(markdown(job.name, 76) || 'Job', url && url.length <= 300 ? url : undefined);
+  });
+  if (jobs.length > lines.length) lines.push('+' + (jobs.length - lines.length) + ' more jobs on GitHub');
+  if (lines.length) embed.description += '\n\n' + lines.join('\n');
+  if (state.attempt > 1) embed.footer.text += ' · Attempt ' + state.attempt;
+  return embed;
 }
 
 export function discordMessage(embed, nonce) {
