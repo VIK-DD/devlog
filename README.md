@@ -111,26 +111,29 @@ card with the event name and a GitHub link. [GitHub webhook event reference](htt
 
 | Component | Location |
 | --- | --- |
-| Bot | `devlog.service` on `127.0.0.1:8310` |
+| Bot | `Devlog` in PM2 on `127.0.0.1:8310` |
 | HTTPS webhook | `https://devlog.novaguard.fun/webhooks/github` |
 | Production configuration | `/etc/devlog` |
-| Persistent queue | `/var/lib/devlog/devlog.sqlite` |
+| Persistent queue | `/var/lib/devlog-pm2/devlog.sqlite` |
 | Active release | `/opt/devlog/current` |
 
 The VM checks `VIK-DD/devlog` on `main` about once a minute. A new commit is
-fetched with a read-only deploy key, syntax-checked, then activated through
-systemd. If the new process fails its health check, the updater restores the
+fetched with a read-only deploy key, syntax-checked, then activated by restarting
+the Devlog process in PM2. If the new process fails its health check, the updater restores the
 previous release. It tries again when `main` advances to a different commit.
 
 ```bash
-systemctl status devlog.service devlog-auto-update.timer
+pm2 status
+pm2 logs Devlog --lines 30 --nostream
+systemctl status devlog-auto-update.timer
 journalctl -u devlog-auto-update.service -n 30 --no-pager
 sudo systemctl start devlog-auto-update.service
 ```
 
-The updater deploys `src/` and `package.json`. The installed systemd units and
-privileged updater are managed on the VM by the administrator. The repo includes
-their source in [`deploy/`](deploy/), alongside the credential setup helper.
+The updater deploys `src/` and `package.json`. The VM runs the app as the
+unprivileged `devlog-runtime` user. The PM2 declaration, systemd timer and
+privileged scripts are managed on the VM by the administrator. Their source
+is in [`deploy/`](deploy/), alongside the credential setup helper.
 
 ## 🛡️ Delivery and privacy
 

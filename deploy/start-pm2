@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+runtime=/run/devlog-pm2
+install -d -o root -g devlog-runtime -m 0750 "$runtime"
+install -o root -g devlog-runtime -m 0640 /etc/devlog/devlog.env "$runtime/devlog.env"
+install -o root -g devlog-runtime -m 0640 /etc/devlog/github-app.pem "$runtime/github-app.pem"
+
+cd /opt/devlog/current
+exec /usr/bin/setpriv --reuid=devlog-runtime --regid=devlog-runtime --init-groups \
+  --no-new-privs --reset-env /usr/bin/env HOST=127.0.0.1 PORT=8310 \
+  DATABASE_PATH=/var/lib/devlog-pm2/devlog.sqlite \
+  GITHUB_APP_PRIVATE_KEY_FILE="$runtime/github-app.pem" \
+  /usr/bin/node --env-file="$runtime/devlog.env" src/server.js

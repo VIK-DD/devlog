@@ -17,11 +17,15 @@ point() {
   mv -Tf -- "$link.next" "$link"
 }
 
+restart_devlog() {
+  /usr/sbin/runuser -u ubuntu -- /usr/bin/pm2 restart Devlog
+}
+
 healthy() {
   local target=$1 pid cwd i
   for (( i=0; i<12; i++ )); do
-    pid=$(systemctl show -p MainPID --value devlog.service)
-    cwd=$(readlink "/proc/$pid/cwd" || true)
+    pid=$(pgrep -u devlog-runtime -x node || true)
+    cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
     if [[ $cwd = "$target" ]] &&
       [[ $(curl -fsS --max-time 2 http://127.0.0.1:8310/healthz 2>/dev/null) = ok ]]; then
       return 0
@@ -83,7 +87,7 @@ else
   point "$previous" "$fallback"
 fi
 point "$target" "$current"
-if systemctl restart devlog.service && healthy "$target"; then
+if restart_devlog && healthy "$target"; then
   echo "Deployed $sha"
   for release in "$releases"/[0-9a-f]*; do
     [[ -d $release && $release != "$target" && $release != "$previous" ]] || continue
@@ -93,7 +97,7 @@ if systemctl restart devlog.service && healthy "$target"; then
 fi
 
 point "$previous" "$current"
-systemctl restart devlog.service
+restart_devlog
 healthy "$previous"
 printf '%s\n' "$sha" > "$state/rejected"
 echo "Health check failed for $sha. Rolled back to $previous." >&2

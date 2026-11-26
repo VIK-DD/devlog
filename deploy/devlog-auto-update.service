@@ -1,6 +1,6 @@
 [Unit]
 Description=Deploy the latest Devlog main commit
-After=network-online.target devlog.service
+After=network-online.target pm2-ubuntu.service
 Wants=network-online.target
 
 [Service]
@@ -13,6 +13,6 @@ LoadCredential=github_known_hosts:/etc/devlog/github_known_hosts
 TimeoutStartSec=150
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectHome=yes
+ProtectHome=read-only
 ProtectSystem=strict
-ReadWritePaths=/opt/devlog
+ReadWritePaths=/opt/devlog /home/ubuntu/.pm2
