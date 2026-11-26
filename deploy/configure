@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+config_dir=/etc/devlog
+secret_file=$config_dir/github-webhook-secret
+
+if [[ $EUID != 0 ]]; then
+  echo 'Rulează acest script cu sudo.' >&2
+  exit 1
+fi
+
+case ${1:-} in
+  secret)
+    if [[ ! -s $secret_file ]]; then
+      openssl rand -hex 32 > "$secret_file"
+    fi
+    tr -d '\n' < "$secret_file"
+    ;;
+  key)
+    staged=$(mktemp "$config_dir/github-app.pem.XXXXXX")
+    trap 'rm -f -- "$staged"' EXIT
+    head -c 32769 > "$staged"
+    if (( $(wc -c < "$staged") > 32768 )); then
+      echo 'Fișierul cheii GitHub este prea mare.' >&2
+      exit 1
+    fi
+    openssl rsa -in "$staged" -passin pass: -check -noout >/dev/null
+    mv -- "$staged" "$config_dir/github-app.pem"
+    echo 'Cheia GitHub App a fost salvată.'
+    ;;
+  discord)
+    login=${2:-}
+    channel=${3:-}
+    if [[ ! $login =~ ^[A-Za-z0-9-]+$ || ! $channel =~ ^[0-9]{17,20}$ || ! -s $secret_file ]]; then
+      echo 'Verifică username-ul, ID-ul canalului și generarea secretului GitHub.' >&2
+      exit 1
+    fi
+    read -r -p 'GitHub App ID: ' app_id
+    read -r -s -p 'Tokenul botului Discord: ' token
+    printf '\n'
+    if [[ ! $app_id =~ ^[0-9]+$ || ! $token =~ ^[A-Za-z0-9._-]+$ ]]; then
+      echo 'App ID sau token Discord invalid.' >&2
+      exit 1
+    fi
+    staged=$(mktemp "$config_dir/devlog.env.XXXXXX")
+    trap 'rm -f -- "$staged"' EXIT
+    {
+      printf 'GITHUB_WEBHOOK_SECRET=%s\n' "$(< "$secret_file")"
+      printf 'GITHUB_LOGIN=%s\n' "$login"
+      printf 'GITHUB_APP_ID=%s\n' "$app_id"
+      printf 'DISCORD_CHANNEL_ID=%s\n' "$channel"
+      printf 'DISCORD_BOT_TOKEN=%s\n' "$token"
+    } > "$staged"
+    mv -- "$staged" "$config_dir/devlog.env"
+    echo 'Configurația a fost salvată.'
+    ;;
+  *)
+    echo 'Comenzi: secret | key | discord GITHUB_LOGIN DISCORD_CHANNEL_ID' >&2
+    exit 1
+    ;;
+esac

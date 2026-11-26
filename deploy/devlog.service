@@ -1,0 +1,26 @@
+[Unit]
+Description=Devlog GitHub to Discord
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/devlog/devlog.env
+ConditionPathExists=/etc/devlog/github-app.pem
+
+[Service]
+Type=simple
+DynamicUser=yes
+WorkingDirectory=/opt/devlog
+Environment=HOST=127.0.0.1 PORT=8310 DATABASE_PATH=/var/lib/devlog/devlog.sqlite
+Environment=GITHUB_APP_PRIVATE_KEY_FILE=%d/github-app.pem
+EnvironmentFile=/etc/devlog/devlog.env
+LoadCredential=github-app.pem:/etc/devlog/github-app.pem
+StateDirectory=devlog
+StateDirectoryMode=0700
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
